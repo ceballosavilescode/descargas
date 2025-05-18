@@ -1,91 +1,108 @@
 import os
 import time
-import sqlite3
-import pandas as pd
+import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.firefox.service import Service
 from selenium.webdriver.firefox.options import Options
+from selenium.webdriver.firefox.service import Service
+from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.action_chains import ActionChains
-from selenium.common.exceptions import (
-	NoSuchElementException,
-	TimeoutException,
-	WebDriverException
-)
+from selenium.common.exceptions import TimeoutException
 
-def descargar_disponibilidad_devengos():
-	columna_estado = 'descarga_cartera_financiera_contable'
-	download_directory = os.path.join(os.getcwd(), 'input_excel', 'cartera_financiera_contable')
-	os.makedirs(download_directory, exist_ok=True)
+# CONFIGURACIÓN PRINCIPAL
+GECKODRIVER_PATH = os.path.join(getattr(sys, '_MEIPASS', os.path.dirname(sys.argv[0])), 'webdriver', 'geckodriver.exe')
+MAX_CONCURRENT = 3  # máximo permitido por el servidor
+WAIT_BETWEEN_BATCHES = 8  # segundos entre cada grupo
+#DOWNLOAD_BASE_DIR = os.path.join(os.getcwd(), "descargas", "cartera")
+DOWNLOAD_BASE_DIR = os.path.join(os.getcwd(), "descargas")
 
-	geckodriver_path = 'C:/Users/Hector/Downloads/cobranzas/webdriver/geckodriver.exe'
+# Lista de URLs a procesar
 
-	print(f"⬇️ Procesando institución {geckodriver_path}...")
+URLS = [
 
-	# Configurar navegador
-	firefox_options = Options()
-	#firefox_options.add_argument("-headless")
-	firefox_options.set_preference("browser.download.folderList", 2)
-	firefox_options.set_preference("browser.download.dir", download_directory)
-	firefox_options.set_preference("browser.helperApps.neverAsk.saveToDisk",
+	"https://asin.sigfe.gob .cl/jasperserver-pro/flow.html?_flowId=viewReportFlow&reportUnit=/SIGFE2/Reportes/SB_DisponibilidadDevengoPresupuestario&pp=u=admin&fecha_desde=2025-01-01&ejercicio=2025&codigo_moneda=CLP&TITLESUBTITULOREPORTE=2111014%20Dirección_Regional_Metropolitana&TITLETIPOMONEDAREPORTE=Gasto%20-%20Nacional&TITLETITULOREPORTE=Disponibilidad%20de%20Devengos%20Presupuestarios&ambiente=SIGFE2&codigo_presupuesto=02&fecha_hasta=2025-12-31&unidad_ejecutora=2111014&ambiente=SIGFE2&site=SB&standAlone=true&decorate=true&readOnly=true&userLocale=es",
+	"https://asin.sigfe.gob.cl/jasperserver-pro/flow.html?_flowId=viewReportFlow&reportUnit=/SIGFE2/Reportes/SB_ListadoDisponibilidadCompromiso&pp=u=Hceballos2111&fecha_desde=2025-01-01&ejercicio=2025&codigo_moneda=CLP&TITLESUBTITULOREPORTE=2111014%20Dirección_Regional_Metropolitana&TITLETIPOMONEDAREPORTE=Gasto%20-%20Nacional&TITLETITULOREPORTE=Disponibilidad%20de%20Compromisos%20Presupuestarios&ambiente=SIGFE2&codigo_presupuesto=02&fecha_hasta=2025-12-31&unidad_ejecutora=2111014&ambiente=SIGFE2&site=SB&standAlone=true&decorate=no&readOnly=true&userLocale=es",
+	"https://sb.sigfe.gob.cl/jasperserver-pro/flow.html?_flowId=viewReportFlow&reportUnit=/SIGFE2/Reportes/SB_CarteraFinancieraContable&pp=u=admin&nombre_cuenta=21522%20Cuentas%20por%20Pagar%20-%20Bienes%20y%20Servicios%20de%20Consumo;&TITLESUBTITULOREPORTE=2111014%20Dirección_Regional_Metropolitana&TITLETIPOMONEDAREPORTE=Nacional%20-%20Unidad&TITLETITULOREPORTE2=Reporte%20Relacionado%20-%20Variaci%C3%83%C2%B3n%20Patrimonial%20Cartera%20Financiera&mostrar_detalle=true&ejercicio=2025&page=flow.html%3F_flowId=viewReportFlow&cuenta_contable=21522&unidad_ejecutora=2111014&vista_cuenta=CUENTA_PRINCIPAL&site=SB&contenido=T&cant_saldo=2025-01-01&ambiente=SIGFE2&url=http%3A//sb.sigfe.gob.cl%3A80/sigfeReports/comun/popup/popupJasperReportRelacionado.jsp&fecha_desde=2025-01-01&codigo_moneda=CLP&nombre_contenido=Saldos%20o%20Flujos&proceso_funcionalidad=VACF&codigo_contab=00&TITLETITULOREPORTE=Cartera%20Financiera%20Contable&server=https%3A//sb.sigfe.gob.cl/jasperserver-pro/&reporte_link=ComparativoCompromiso_Relacionado&mostrar_filtros=true&expresion_valores=1&fecha_hasta=2025-12-31&nombre_vista=Cuenta/Principal&ambiente=SIGFE2&site=SB&standAlone=true&decorate=true&readOnly=true&userLocale=es",
+]
+
+
+# Utilidad para obtener nombre de carpeta desde URL
+def obtener_nombre_desde_url(url):
+	# Aquí puedes personalizar la lógica de extracción
+	partes = url.split("&")
+	for parte in partes:
+		if "TITLESUBTITULOREPORTE" in parte:
+			return parte.split("=")[-1].replace("%20", "_")[:40]
+	return "descarga_generica"
+
+def configurar_driver(download_path):
+	options = Options()
+	options.add_argument("-headless")
+	options.set_preference("browser.download.folderList", 2)
+	options.set_preference("browser.download.dir", download_path)
+	options.set_preference("browser.helperApps.neverAsk.saveToDisk",
 		"application/vnd.ms-excel,application/csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-	firefox_options.set_preference("pdfjs.disabled", True)
-	firefox_options.set_preference("browser.download.manager.showWhenStarting", False)
+	options.set_preference("pdfjs.disabled", True)
+	options.set_preference("browser.download.manager.showWhenStarting", False)
+	service = Service(executable_path=GECKODRIVER_PATH)
+	return webdriver.Firefox(service=service, options=options)
 
-	service = Service(executable_path=geckodriver_path)
-	driver = webdriver.Firefox(service=service, options=firefox_options)
+def procesar_url(url):
+	nombre = obtener_nombre_desde_url(url)
+	#destino = os.path.join(DOWNLOAD_BASE_DIR, nombre)
+	destino = os.path.join(DOWNLOAD_BASE_DIR)
+	os.makedirs(destino, exist_ok=True)
+
+	driver = configurar_driver(destino)
+	print(f"🌐 Procesando: {nombre}")
 
 	try:
-		driver.get("https://sb.sigfe.gob.cl/jasperserver-pro/flow.html?_flowId=viewReportFlow&reportUnit=/SIGFE2/Reportes/SB_CarteraFinancieraContable&pp=u=admin&nombre_cuenta=21522%20Cuentas%20por%20Pagar%20-%20Bienes%20y%20Servicios%20de%20Consumo;&TITLESUBTITULOREPORTE=2111001%20Dirección_Nacional&TITLETIPOMONEDAREPORTE=Nacional%20-%20Unidad&TITLETITULOREPORTE2=Reporte%20Relacionado%20-%20Variaci%C3%83%C2%B3n%20Patrimonial%20Cartera%20Financiera&mostrar_detalle=true&ejercicio=2025&page=flow.html%3F_flowId=viewReportFlow&cuenta_contable=21522&unidad_ejecutora=2111001&vista_cuenta=CUENTA_PRINCIPAL&site=SB&contenido=T&cant_saldo=2025-01-01&ambiente=SIGFE2&url=http%3A//sb.sigfe.gob.cl%3A80/sigfeReports/comun/popup/popupJasperReportRelacionado.jsp&fecha_desde=2025-01-01&codigo_moneda=CLP&nombre_contenido=Saldos%20o%20Flujos&proceso_funcionalidad=VACF&codigo_contab=00&TITLETITULOREPORTE=Cartera%20Financiera%20Contable&server=https%3A//sb.sigfe.gob.cl/jasperserver-pro/&reporte_link=ComparativoCompromiso_Relacionado&mostrar_filtros=true&expresion_valores=1&fecha_hasta=2025-12-31&nombre_vista=Cuenta/Principal&ambiente=SIGFE2&site=SB&standAlone=true&decorate=true&readOnly=true&userLocale=es")
+		driver.get(url)
+		wait = WebDriverWait(driver, 15)
 		time.sleep(10)
+		# Click en botón de exportar
+		export_xpaths = [
+			'//*[@id="export"]/span/span[2]',
+			'//*[@id="menuList_simpleAction_36"]/p'
+		]
+		for xpath in export_xpaths:
+			if driver.find_elements(By.XPATH, xpath):
+				wait.until(EC.element_to_be_clickable((By.XPATH, xpath))).click()
+				time.sleep(10)
+				break
+		else:
+			print(f"⚠️ Botón no encontrado en {nombre}.")
+			return
 
+		# Click en opción "Como Excel"
+		opcion = wait.until(EC.element_to_be_clickable((
+			By.XPATH, '//p[normalize-space(text()) = "Como Excel"]')))
+		opcion.click()
+		print(f"📥 Descargando Excel para {nombre}...")
+		time.sleep(10)  # esperar descarga efectiva
 
-
-		# Intentar hacer clic en el botón de exportar con espera incremental
-		wait_time = 10
-		while True:
-			try:
-				wait = WebDriverWait(driver, wait_time)
-				menu_button = wait.until(EC.element_to_be_clickable((By.XPATH, '//*[@id="export"]/span/span[2]')))
-				menu_button.click()
-				break  # Salir del bucle si el clic es exitoso
-			except (TimeoutException, NoSuchElementException) as e:
-				print(f"⚠️ Fallo al encontrar botón de exportar para {cod_institucion} con espera de {wait_time}s. Error: {e}")
-				wait_time += 10  # Aumentar espera en 10 segundos
-				print(f"🔄 Reintentando con espera de {wait_time}s...")
-				if wait_time > 20:  # Límite máximo de espera (por ejemplo, 20 segundos)
-					print(f"❌ Tiempo máximo alcanzado para {cod_institucion}. Marcando como Error.")
-
-		time.sleep(2)
-
-		# Intentar hacer clic en la opción "Como Excel" con espera incremental
-		wait_time = 10
-		while True:
-			try:
-				wait = WebDriverWait(driver, wait_time)
-				opcion_excel = wait.until(EC.element_to_be_clickable((By.XPATH, '//p[normalize-space(text()) = "Como Excel"]')))
-				opcion_excel.click()
-				break  # Salir del bucle si el clic es exitoso
-			except (TimeoutException, NoSuchElementException) as e:
-				print(f"⚠️ Fallo al encontrar opción Excel para {cod_institucion} con espera de {wait_time}s. Error: {e}")
-				wait_time += 10  # Aumentar espera en 10 segundos
-				print(f"🔄 Reintentando con espera de {wait_time}s...")
-				if wait_time > 20:  # Límite máximo de espera (por ejemplo, 20 segundos)
-					print(f"❌ Tiempo máximo alcanzado para {cod_institucion}. Marcando como Error.")
-
-		time.sleep(10)
-
-
-	except (TimeoutException, NoSuchElementException, WebDriverException) as e:
-		print(f"❌ Error para {cod_institucion}: {e}")
-
+	except TimeoutException as e:
+		print(f"⏳ Timeout en {nombre}: {e}")
+	except Exception as e:
+		print(f"❌ Error en {nombre}: {e}")
 	finally:
 		driver.quit()
-		print("🔄 Cerrando navegador y continuando...\n")
+		print(f"🔒 Navegador cerrado para {nombre}.")
 
-print("🎉 ¡Proceso de descarga completado para todas las instituciones!")
+def ejecutar_por_lotes(urls, max_concurrent=MAX_CONCURRENT):
+	for i in range(0, len(urls), max_concurrent):
+		lote = urls[i:i+max_concurrent]
+		print(f"\n🚀 Iniciando lote {i//max_concurrent + 1} con {len(lote)} URLs")
+
+		with ThreadPoolExecutor(max_workers=max_concurrent) as executor:
+			futuros = [executor.submit(procesar_url, url) for url in lote]
+			for futuro in as_completed(futuros):
+				_ = futuro.result()
+
+		print(f"⏸️ Esperando {WAIT_BETWEEN_BATCHES}s antes del siguiente lote...")
+		time.sleep(WAIT_BETWEEN_BATCHES)
 
 if __name__ == '__main__':
-    descargar_disponibilidad_devengos()
+	ejecutar_por_lotes(URLS)
+	print("\n✅ Todas las descargas completadas.")
