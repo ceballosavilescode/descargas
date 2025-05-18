@@ -12,7 +12,7 @@ from selenium.common.exceptions import TimeoutException
 
 # CONFIGURACIÓN PRINCIPAL
 GECKODRIVER_PATH = os.path.join(getattr(sys, '_MEIPASS', os.path.dirname(sys.argv[0])), 'webdriver', 'geckodriver.exe')
-MAX_CONCURRENT = 3  # máximo permitido por el servidor
+MAX_CONCURRENT = 1  # máximo permitido por el servidor
 WAIT_BETWEEN_BATCHES = 8  # segundos entre cada grupo
 #DOWNLOAD_BASE_DIR = os.path.join(os.getcwd(), "descargas", "cartera")
 DOWNLOAD_BASE_DIR = os.path.join(os.getcwd(), "descargas")
