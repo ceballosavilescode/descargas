@@ -38,7 +38,7 @@ def obtener_nombre_desde_url(url):
 
 def configurar_driver(download_path):
 	options = Options()
-	#options.add_argument("-headless")
+	# options.add_argument("-headless")
 	options.set_preference("browser.download.folderList", 2)
 	options.set_preference("browser.download.dir", download_path)
 	options.set_preference("browser.helperApps.neverAsk.saveToDisk",
