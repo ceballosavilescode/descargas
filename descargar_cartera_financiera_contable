@@ -57,10 +57,9 @@ def procesar_url(url):
 	print(f"🌐 Procesando: {nombre}")
 
 	try:
-		time.sleep(10)
 		driver.get(url)
 		wait = WebDriverWait(driver, 15)
-		time.sleep(10)
+		time.sleep(15)
 		# Click en botón de exportar
 		export_xpaths = [
 			'//*[@id="export"]/span/span[2]',
