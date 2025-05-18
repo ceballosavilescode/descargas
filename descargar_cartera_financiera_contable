@@ -92,7 +92,7 @@ def procesar_url(url):
 
 def ejecutar_por_lotes(urls, max_concurrent=MAX_CONCURRENT):
 	for i in range(0, len(urls), max_concurrent):
-		print(url)
+		#print(url)
 		lote = urls[i:i+max_concurrent]
 		print(f"\n🚀 Iniciando lote {i//max_concurrent + 1} con {len(lote)} URLs")
 
