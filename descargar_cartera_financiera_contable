@@ -1,0 +1,226 @@
+import os
+import time
+import sqlite3
+import pandas as pd
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.firefox.service import Service
+from selenium.webdriver.firefox.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.common.exceptions import (
+	NoSuchElementException,
+	TimeoutException,
+	WebDriverException
+)
+from lib.database import Database
+
+def obtener_lote_pendiente(columna_estado, lote=2):
+	db_file = 'database.db'
+	conn = sqlite3.connect(db_file)
+	cursor = conn.cursor()
+
+	# Obtener un lote de instituciones pendientes
+	cursor.execute(f"""
+		SELECT cod_institucion
+		FROM instituciones
+		WHERE {columna_estado} = 'Pendiente'
+		ORDER BY cod_institucion ASC
+		LIMIT ?
+	""", (lote,))
+	rows = cursor.fetchall()
+	codigos = [r[0] for r in rows]
+
+	# Marcar esos códigos como 'En_Proceso'
+	if codigos:
+		placeholders = ','.join('?' for _ in codigos)
+		cursor.execute(f"""
+			UPDATE instituciones
+			SET {columna_estado} = 'En_Proceso'
+			WHERE cod_institucion IN ({placeholders})
+		""", codigos)
+		conn.commit()
+
+	conn.close()
+
+	# Recuperar los datos completos en un DataFrame
+	if codigos:
+		conn = sqlite3.connect(db_file)
+		placeholders = ','.join('?' for _ in codigos)
+		consulta = f"""
+			SELECT DISTINCT
+				cod_institucion,
+				identificacion2,
+				cartera_financiera_contable
+			FROM instituciones
+			WHERE cod_institucion IN ({placeholders})
+			ORDER BY cod_institucion ASC
+		"""
+		instituciones = pd.read_sql_query(consulta, conn, params=codigos)
+		conn.close()
+		return instituciones
+
+	return pd.DataFrame()
+
+def descargar_disponibilidad_devengos():
+	columna_estado = 'descarga_cartera_financiera_contable'
+	download_directory = os.path.join(os.getcwd(), 'input_excel', 'cartera_financiera_contable')
+	os.makedirs(download_directory, exist_ok=True)
+
+	geckodriver_path = 'C:/Users/Hector/Downloads/cobranzas/webdriver/geckodriver.exe'
+
+	while True:
+		instituciones = obtener_lote_pendiente(columna_estado, lote=2)
+
+		if instituciones.empty:
+			print("✅ No hay más instituciones pendientes.")
+			break
+
+		for _, row in instituciones.iterrows():
+			cod_institucion = row['cod_institucion']
+			print(f"⬇️ Procesando institución {cod_institucion}...")
+
+			# Configurar navegador
+			firefox_options = Options()
+			firefox_options.add_argument("-headless")
+			firefox_options.set_preference("browser.download.folderList", 2)
+			firefox_options.set_preference("browser.download.dir", download_directory)
+			firefox_options.set_preference("browser.helperApps.neverAsk.saveToDisk",
+				"application/vnd.ms-excel,application/csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+			firefox_options.set_preference("pdfjs.disabled", True)
+			firefox_options.set_preference("browser.download.manager.showWhenStarting", False)
+
+			service = Service(executable_path=geckodriver_path)
+			driver = webdriver.Firefox(service=service, options=firefox_options)
+
+			try:
+				print(f"🌐 URL: {row['cartera_financiera_contable']}")
+				driver.get(row['cartera_financiera_contable'])
+				time.sleep(10)
+
+
+				time.sleep(10)
+				time.sleep(10)
+				time.sleep(10)
+				time.sleep(10)
+				time.sleep(10)
+				time.sleep(10)
+
+				time.sleep(10)
+				time.sleep(10)
+				time.sleep(10)
+				time.sleep(10)
+				time.sleep(10)
+				time.sleep(10)
+
+
+
+
+
+				# Intentar hacer clic en el botón de exportar con espera incremental
+				wait_time = 10
+				while True:
+					try:
+						wait = WebDriverWait(driver, wait_time)
+						menu_button = wait.until(EC.element_to_be_clickable((By.XPATH, '//*[@id="export"]/span/span[2]')))
+						menu_button.click()
+						break  # Salir del bucle si el clic es exitoso
+					except (TimeoutException, NoSuchElementException) as e:
+						print(f"⚠️ Fallo al encontrar botón de exportar para {cod_institucion} con espera de {wait_time}s. Error: {e}")
+						wait_time += 10  # Aumentar espera en 10 segundos
+						print(f"🔄 Reintentando con espera de {wait_time}s...")
+						if wait_time > 20:  # Límite máximo de espera (por ejemplo, 20 segundos)
+							print(f"❌ Tiempo máximo alcanzado para {cod_institucion}. Marcando como Error.")
+							conn = sqlite3.connect('database.db')
+							cursor = conn.cursor()
+							cursor.execute(f"""
+								UPDATE instituciones
+								SET {columna_estado} = 'Error'
+								WHERE cod_institucion = ?
+							""", (cod_institucion,))
+							conn.commit()
+							conn.close()
+							raise TimeoutException("Tiempo máximo de espera alcanzado")
+
+				time.sleep(2)
+
+				# Intentar hacer clic en la opción "Como Excel" con espera incremental
+				wait_time = 10
+				while True:
+					try:
+						wait = WebDriverWait(driver, wait_time)
+						opcion_excel = wait.until(EC.element_to_be_clickable((By.XPATH, '//p[normalize-space(text()) = "Como Excel"]')))
+						opcion_excel.click()
+						break  # Salir del bucle si el clic es exitoso
+					except (TimeoutException, NoSuchElementException) as e:
+						print(f"⚠️ Fallo al encontrar opción Excel para {cod_institucion} con espera de {wait_time}s. Error: {e}")
+						wait_time += 10  # Aumentar espera en 10 segundos
+						print(f"🔄 Reintentando con espera de {wait_time}s...")
+						if wait_time > 20:  # Límite máximo de espera (por ejemplo, 20 segundos)
+							print(f"❌ Tiempo máximo alcanzado para {cod_institucion}. Marcando como Error.")
+							conn = sqlite3.connect('database.db')
+							cursor = conn.cursor()
+							cursor.execute(f"""
+								UPDATE instituciones
+								SET {columna_estado} = 'Error'
+								WHERE cod_institucion = ?
+							""", (cod_institucion,))
+							conn.commit()
+							conn.close()
+							raise TimeoutException("Tiempo máximo de espera alcanzado")
+
+				time.sleep(10)
+
+
+				time.sleep(10)
+				time.sleep(10)
+				time.sleep(10)
+				time.sleep(10)
+				time.sleep(10)
+				time.sleep(10)
+
+				time.sleep(10)
+				time.sleep(10)
+				time.sleep(10)
+				time.sleep(10)
+				time.sleep(10)
+				time.sleep(10)
+	
+
+
+				# Marcar como OK al terminar
+				conn = sqlite3.connect('database.db')
+				cursor = conn.cursor()
+				cursor.execute(f"""
+					UPDATE instituciones
+					SET {columna_estado} = 'OK'
+					WHERE cod_institucion = ?
+				""", (cod_institucion,))
+				conn.commit()
+				conn.close()
+
+				print(f"✅ {cod_institucion} descargado correctamente.")
+
+			except (TimeoutException, NoSuchElementException, WebDriverException) as e:
+				print(f"❌ Error para {cod_institucion}: {e}")
+				# Asegurarse de que se marque como Error si ocurre una excepción
+				conn = sqlite3.connect('database.db')
+				cursor = conn.cursor()
+				cursor.execute(f"""
+					UPDATE instituciones
+					SET {columna_estado} = 'Error'
+					WHERE cod_institucion = ?
+				""", (cod_institucion,))
+				conn.commit()
+				conn.close()
+
+			finally:
+				driver.quit()
+				print("🔄 Cerrando navegador y continuando...\n")
+
+	print("🎉 ¡Proceso de descarga completado para todas las instituciones!")
+
+
+def run():
+    descargar_disponibilidad_devengos()
