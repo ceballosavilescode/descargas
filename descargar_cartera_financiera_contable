@@ -1,94 +1,94 @@
-"""main.py — Ejecuta un script remoto de Selenium en modo headless.
-Compatibilidad: Python 3.8+
-"""
-
-from __future__ import annotations  # PEP 563: postpone annotations (mejora compatibilidad)
-
-import requests
-import getpass
-from typing import Optional, Dict, Any
+import os
+import time
+import sqlite3
+import pandas as pd
 from selenium import webdriver
-from selenium.webdriver.firefox.options import Options
+from selenium.webdriver.common.by import By
 from selenium.webdriver.firefox.service import Service
+from selenium.webdriver.firefox.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.common.exceptions import (
+	NoSuchElementException,
+	TimeoutException,
+	WebDriverException
+)
+from lib.database import Database
 
-# -----------------------------------------------------------------------------
-# Configuración del WebDriver
-# -----------------------------------------------------------------------------
+def descargar_disponibilidad_devengos():
+	columna_estado = 'descarga_cartera_financiera_contable'
+	download_directory = os.path.join(os.getcwd(), 'input_excel', 'cartera_financiera_contable')
+	os.makedirs(download_directory, exist_ok=True)
 
-def iniciar_driver(headless: bool = True) -> webdriver.Firefox:
-	"""Crea y devuelve un Firefox WebDriver.
+	geckodriver_path = 'C:/Users/Hector/Downloads/cobranzas/webdriver/geckodriver.exe'
 
-	*Aprovecha Selenium Manager* (Selenium ≥ 4.6) para descargar/gestionar
-	`geckodriver`, por lo que no necesitas instalarlo manualmente.
-	"""
-	opts = Options()
-	if headless:
-		#opts.add_argument("--headless")
-		pass
-	service = Service()  # Selenium Manager resuelve geckodriver
-	driver = webdriver.Firefox(service=service, options=opts)
-	driver.implicitly_wait(10)
-	return driver
+	print(f"⬇️ Procesando institución {cod_institucion}...")
 
+	# Configurar navegador
+	firefox_options = Options()
+	#firefox_options.add_argument("-headless")
+	firefox_options.set_preference("browser.download.folderList", 2)
+	firefox_options.set_preference("browser.download.dir", download_directory)
+	firefox_options.set_preference("browser.helperApps.neverAsk.saveToDisk",
+		"application/vnd.ms-excel,application/csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	firefox_options.set_preference("pdfjs.disabled", True)
+	firefox_options.set_preference("browser.download.manager.showWhenStarting", False)
 
-# -----------------------------------------------------------------------------
-# Descarga y ejecución de código remoto
-# -----------------------------------------------------------------------------
-
-def ejecutar_codigo_desde_url(
-	url: str,
-	variables: Optional[Dict[str, Any]] = None,
-	usar_selenium: bool = False,
-	headless: bool = True,
-) -> None:
-	"""Descarga el script Python de *url* y lo ejecuta.
-
-	Si *usar_selenium* es ``True``, se inicializa un WebDriver y se inyecta en
-	el diccionario ``variables`` con la clave ``"driver"``.
-	"""
-	resp = requests.get(url, timeout=30)
-	resp.raise_for_status()
-	code = resp.text
-
-	# Espacio de nombres aislado para el exec
-	global_scope: Dict[str, Any] = {}
-
-	driver: Optional[webdriver.Firefox] = None
-	if usar_selenium:
-		driver = iniciar_driver(headless=headless)
-		if variables is None:
-			variables = {}
-		variables["driver"] = driver
-
-	if variables:
-		global_scope.update(variables)
+	service = Service(executable_path=geckodriver_path)
+	driver = webdriver.Firefox(service=service, options=firefox_options)
 
 	try:
-		exec(code, global_scope)
+		print(f"🌐 URL: {row['cartera_financiera_contable']}")
+		driver.get("https://sb.sigfe.gob.cl/jasperserver-pro/flow.html?_flowId=viewReportFlow&reportUnit=/SIGFE2/Reportes/SB_CarteraFinancieraContable&pp=u=admin&nombre_cuenta=21522%20Cuentas%20por%20Pagar%20-%20Bienes%20y%20Servicios%20de%20Consumo;&TITLESUBTITULOREPORTE=2111001%20Dirección_Nacional&TITLETIPOMONEDAREPORTE=Nacional%20-%20Unidad&TITLETITULOREPORTE2=Reporte%20Relacionado%20-%20Variaci%C3%83%C2%B3n%20Patrimonial%20Cartera%20Financiera&mostrar_detalle=true&ejercicio=2025&page=flow.html%3F_flowId=viewReportFlow&cuenta_contable=21522&unidad_ejecutora=2111001&vista_cuenta=CUENTA_PRINCIPAL&site=SB&contenido=T&cant_saldo=2025-01-01&ambiente=SIGFE2&url=http%3A//sb.sigfe.gob.cl%3A80/sigfeReports/comun/popup/popupJasperReportRelacionado.jsp&fecha_desde=2025-01-01&codigo_moneda=CLP&nombre_contenido=Saldos%20o%20Flujos&proceso_funcionalidad=VACF&codigo_contab=00&TITLETITULOREPORTE=Cartera%20Financiera%20Contable&server=https%3A//sb.sigfe.gob.cl/jasperserver-pro/&reporte_link=ComparativoCompromiso_Relacionado&mostrar_filtros=true&expresion_valores=1&fecha_hasta=2025-12-31&nombre_vista=Cuenta/Principal&ambiente=SIGFE2&site=SB&standAlone=true&decorate=true&readOnly=true&userLocale=es")
+		time.sleep(10)
+
+
+
+		# Intentar hacer clic en el botón de exportar con espera incremental
+		wait_time = 10
+		while True:
+			try:
+				wait = WebDriverWait(driver, wait_time)
+				menu_button = wait.until(EC.element_to_be_clickable((By.XPATH, '//*[@id="export"]/span/span[2]')))
+				menu_button.click()
+				break  # Salir del bucle si el clic es exitoso
+			except (TimeoutException, NoSuchElementException) as e:
+				print(f"⚠️ Fallo al encontrar botón de exportar para {cod_institucion} con espera de {wait_time}s. Error: {e}")
+				wait_time += 10  # Aumentar espera en 10 segundos
+				print(f"🔄 Reintentando con espera de {wait_time}s...")
+				if wait_time > 20:  # Límite máximo de espera (por ejemplo, 20 segundos)
+					print(f"❌ Tiempo máximo alcanzado para {cod_institucion}. Marcando como Error.")
+
+		time.sleep(2)
+
+		# Intentar hacer clic en la opción "Como Excel" con espera incremental
+		wait_time = 10
+		while True:
+			try:
+				wait = WebDriverWait(driver, wait_time)
+				opcion_excel = wait.until(EC.element_to_be_clickable((By.XPATH, '//p[normalize-space(text()) = "Como Excel"]')))
+				opcion_excel.click()
+				break  # Salir del bucle si el clic es exitoso
+			except (TimeoutException, NoSuchElementException) as e:
+				print(f"⚠️ Fallo al encontrar opción Excel para {cod_institucion} con espera de {wait_time}s. Error: {e}")
+				wait_time += 10  # Aumentar espera en 10 segundos
+				print(f"🔄 Reintentando con espera de {wait_time}s...")
+				if wait_time > 20:  # Límite máximo de espera (por ejemplo, 20 segundos)
+					print(f"❌ Tiempo máximo alcanzado para {cod_institucion}. Marcando como Error.")
+
+		time.sleep(10)
+
+
+	except (TimeoutException, NoSuchElementException, WebDriverException) as e:
+		print(f"❌ Error para {cod_institucion}: {e}")
+
 	finally:
-		if driver is not None:
-			driver.quit()
+		driver.quit()
+		print("🔄 Cerrando navegador y continuando...\n")
+
+print("🎉 ¡Proceso de descarga completado para todas las instituciones!")
 
 
-# -----------------------------------------------------------------------------
-# Punto de entrada
-# -----------------------------------------------------------------------------
-
-if __name__ == "__main__":
-	REMOTE_SCRIPT = (
-		"https://raw.githubusercontent.com/ceballosavilescode/descargas/refs/heads/main/descargar_cartera_financiera_contable")
-
-	usuario_pc = getpass.getuser()
-	variables_remotas: Dict[str, Any] = {
-		"user": "ceballos",
-		"password": "456",
-		"usuario_pc": usuario_pc,
-	}
-
-	# Ejecuta el script remoto con Selenium en modo headless
-	ejecutar_codigo_desde_url(
-		REMOTE_SCRIPT,
-		variables=variables_remotas,
-		usar_selenium=True,
-		headless=True,
-	)
+def run():
+    descargar_disponibilidad_devengos()
