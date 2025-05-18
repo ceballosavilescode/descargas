@@ -57,6 +57,7 @@ def procesar_url(url):
 	print(f"🌐 Procesando: {nombre}")
 
 	try:
+		time.sleep(10)
 		driver.get(url)
 		wait = WebDriverWait(driver, 15)
 		time.sleep(10)
